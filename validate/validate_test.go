@@ -7,8 +7,8 @@ package validate
 import (
 	"testing"
 
-	"github.com/go-interpreter/wagon/wasm"
-	"github.com/go-interpreter/wagon/wasm/operators"
+	"github.com/xuperchain/wagon/wasm"
+	"github.com/xuperchain/wagon/wasm/operators"
 )
 
 func TestValidateAlignment(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/go-interpreter/wagon/wasm"
-	"github.com/go-interpreter/wagon/wasm/operators"
-	ops "github.com/go-interpreter/wagon/wasm/operators"
+	"github.com/xuperchain/wagon/wasm"
+	"github.com/xuperchain/wagon/wasm/operators"
+	ops "github.com/xuperchain/wagon/wasm/operators"
 )
 
 // vibhavp: TODO: We do not verify whether blocks don't access for the parent block, do that.

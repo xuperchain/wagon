@@ -4,7 +4,7 @@
 
 package operators
 
-import "github.com/go-interpreter/wagon/wasm"
+import "github.com/xuperchain/wagon/wasm"
 
 // These opcodes implement optimizations in wagon execution, and are invalid
 // opcodes for any uses other than internal use. Expect them to change at any

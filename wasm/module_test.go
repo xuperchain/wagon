@@ -12,8 +12,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/go-interpreter/wagon/exec"
-	"github.com/go-interpreter/wagon/wasm"
+	"github.com/xuperchain/wagon/exec"
+	"github.com/xuperchain/wagon/wasm"
 )
 
 var testPaths = []string{
