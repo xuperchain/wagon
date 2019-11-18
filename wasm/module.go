@@ -10,7 +10,7 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/go-interpreter/wagon/wasm/internal/readpos"
+	"github.com/xuperchain/wagon/wasm/internal/readpos"
 )
 
 var ErrInvalidMagic = errors.New("wasm: Invalid magic number")

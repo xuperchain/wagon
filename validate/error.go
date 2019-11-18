@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-interpreter/wagon/wasm"
-	ops "github.com/go-interpreter/wagon/wasm/operators"
+	"github.com/xuperchain/wagon/wasm"
+	ops "github.com/xuperchain/wagon/wasm/operators"
 )
 
 // Error wraps validation errors with information about where the error

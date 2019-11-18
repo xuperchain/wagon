@@ -5,7 +5,7 @@
 package operators
 
 import (
-	"github.com/go-interpreter/wagon/wasm"
+	"github.com/xuperchain/wagon/wasm"
 )
 
 var (

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/go-interpreter/wagon/wasm"
+	"github.com/xuperchain/wagon/wasm"
 )
 
 var skipModuleFilenames = map[string]bool{

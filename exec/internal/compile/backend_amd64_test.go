@@ -14,10 +14,10 @@ import (
 	"testing"
 	"unsafe"
 
-	ops "github.com/go-interpreter/wagon/wasm/operators"
 	asm "github.com/twitchyliquid64/golang-asm"
 	"github.com/twitchyliquid64/golang-asm/obj"
 	"github.com/twitchyliquid64/golang-asm/obj/x86"
+	ops "github.com/xuperchain/wagon/wasm/operators"
 )
 
 func TestAMD64JitCall(t *testing.T) {

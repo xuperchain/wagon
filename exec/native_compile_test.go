@@ -11,9 +11,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/go-interpreter/wagon/disasm"
-	"github.com/go-interpreter/wagon/exec/internal/compile"
-	ops "github.com/go-interpreter/wagon/wasm/operators"
+	"github.com/xuperchain/wagon/disasm"
+	"github.com/xuperchain/wagon/exec/internal/compile"
+	ops "github.com/xuperchain/wagon/wasm/operators"
 )
 
 func fakeNativeCompiler(t *testing.T) *nativeCompiler {

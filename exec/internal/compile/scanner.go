@@ -5,7 +5,7 @@
 package compile
 
 import (
-	ops "github.com/go-interpreter/wagon/wasm/operators"
+	ops "github.com/xuperchain/wagon/wasm/operators"
 )
 
 type scanner struct {
