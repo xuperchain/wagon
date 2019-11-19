@@ -90,12 +90,22 @@ var ErrStackUnderflow = errors.New("disasm: stack underflow")
 // parent module as an argument for locating any other functions referenced by
 // fn.
 func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error) {
+	return NewDisassemblyWithGas(fn, module, nil)
+}
+
+// NewDisassemblyWithGas like NewDisassembly but add checkGas instructions.
+func NewDisassemblyWithGas(fn wasm.Function, module *wasm.Module, gasMapper GasMapper) (*Disassembly, error) {
 	code := fn.Body.Code
 	instrs, err := Disassemble(code)
 	if err != nil {
 		return nil, err
 	}
-	disas := &Disassembly{}
+	if gasMapper != nil {
+		instrs = AddGasInstr(instrs, gasMapper)
+	}
+	disas := &Disassembly{
+		Code: make([]Instr, 0, len(instrs)),
+	}
 
 	// A stack of int arrays holding indices to instructions that make the stack
 	// polymorphic. Each block has its corresponding array. We start with one
@@ -109,7 +119,7 @@ func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error)
 	curIndex := 0
 
 	for _, instr := range instrs {
-		logger.Printf("stack top is %d", stackDepths.Top())
+		//logger.Printf("stack top is %d", stackDepths.Top())
 		opStr := instr.Op
 		op := opStr.Code
 		if op == ops.End || op == ops.Else {
@@ -143,7 +153,7 @@ func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error)
 			continue
 		}
 
-		logger.Printf("op: %s, unreachable: %v", opStr.Name, instr.Unreachable)
+		// logger.Printf("op: %s, unreachable: %v", opStr.Name, instr.Unreachable)
 		if !opStr.Polymorphic {
 			top := int(stackDepths.Top())
 			top -= len(opStr.Args)
@@ -196,7 +206,7 @@ func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error)
 				disas.checkMaxDepth(int(stackDepths.Get(prevDepthIndex)))
 			}
 
-			logger.Printf("setting new stack for %s block (%d)", disas.Code[blockStartIndex].Op.Name, blockStartIndex)
+			//logger.Printf("setting new stack for %s block (%d)", disas.Code[blockStartIndex].Op.Name, blockStartIndex)
 			blockPolymorphicOps = blockPolymorphicOps[:len(blockPolymorphicOps)-1]
 
 			stackDepths.Pop()
@@ -206,7 +216,7 @@ func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error)
 			}
 		case ops.Block, ops.Loop, ops.If:
 			sig := instr.Immediates[0].(wasm.BlockType)
-			logger.Printf("if, depth is %d", stackDepths.Top())
+			//logger.Printf("if, depth is %d", stackDepths.Top())
 			stackDepths.Push(stackDepths.Top())
 			blockPolymorphicOps = append(blockPolymorphicOps, []int{})
 			instr.Block = &BlockInfo{
@@ -258,7 +268,7 @@ func NewDisassembly(fn wasm.Function, module *wasm.Module) (*Disassembly, error)
 					curDepth := stackDepths.Top()
 					branchDepth := stackDepths.Get(stackDepths.Len() - 2 - int(entry))
 					elemsDiscard := int(curDepth) - int(branchDepth)
-					logger.Printf("Curdepth %d branchDepth %d discard %d", curDepth, branchDepth, elemsDiscard)
+					//logger.Printf("Curdepth %d branchDepth %d discard %d", curDepth, branchDepth, elemsDiscard)
 
 					if elemsDiscard < 0 {
 						return nil, ErrStackUnderflow

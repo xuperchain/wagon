@@ -16,5 +16,6 @@ var (
 		WagonNativeExec: true,
 	}
 
+	CheckGas        = newOp(0xfd, "wagon.checkGas", []wasm.ValueType{}, noReturn)
 	WagonNativeExec = newOp(0xfe, "wagon.nativeExec", []wasm.ValueType{wasm.ValueTypeI64}, noReturn)
 )

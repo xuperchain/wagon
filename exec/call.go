@@ -4,7 +4,9 @@
 
 package exec
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	// ErrSignatureMismatch is the error value used while trapping the VM when
@@ -20,7 +22,11 @@ var (
 func (vm *VM) call() {
 	index := vm.fetchUint32()
 
-	vm.funcs[index].call(vm, int64(index))
+	fn, err := vm.getFunc(int(index))
+	if err != nil {
+		panic(err)
+	}
+	fn.call(vm, int64(index))
 }
 
 func (vm *VM) callIndirect() {
@@ -53,5 +59,9 @@ func (vm *VM) callIndirect() {
 		}
 	}
 
-	vm.funcs[elemIndex].call(vm, int64(elemIndex))
+	fn, err := vm.getFunc(int(elemIndex))
+	if err != nil {
+		panic(err)
+	}
+	fn.call(vm, int64(elemIndex))
 }
