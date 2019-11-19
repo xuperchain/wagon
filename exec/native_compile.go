@@ -91,7 +91,7 @@ func (vm *VM) tryNativeCompile() error {
 	}
 
 	for i := range vm.funcs {
-		if _, isGoFunc := vm.funcs[i].(*goFunction); isGoFunc {
+		if _, isGoFunc := vm.funcs[i].(goFunction); isGoFunc {
 			continue
 		}
 

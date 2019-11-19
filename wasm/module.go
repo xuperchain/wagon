@@ -137,7 +137,7 @@ func ReadModule(r io.Reader, resolvePath ResolveFunc) (*Module, error) {
 		return nil, err
 	}
 
-	m.LinearMemoryIndexSpace = make([][]byte, 1)
+	// m.LinearMemoryIndexSpace = make([][]byte, 1)
 	if m.Table != nil {
 		m.TableIndexSpace = make([][]uint32, int(len(m.Table.Entries)))
 	}
@@ -157,7 +157,52 @@ func ReadModule(r io.Reader, resolvePath ResolveFunc) (*Module, error) {
 		m.populateGlobals,
 		m.populateFunctions,
 		m.populateTables,
-		m.populateLinearMemory,
+		// m.populateLinearMemory,
+	} {
+		if err := fn(); err != nil {
+			return nil, err
+		}
+	}
+
+	logger.Printf("There are %d entries in the function index space.", len(m.FunctionIndexSpace))
+	return m, nil
+}
+
+type ResolveModuleFunc func(name string, main *Module) (*Module, error)
+
+// ReadModule reads a module from the reader r. resolvePath must take a string
+// and a return a reader to the module pointed to by the string.
+func LoadModule(r io.Reader, resolveFunc ResolveModuleFunc) (*Module, error) {
+	m, err := DecodeModule(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// m.LinearMemoryIndexSpace = make([][]byte, 1)
+	if m.Table != nil {
+		m.TableIndexSpace = make([][]uint32, int(len(m.Table.Entries)))
+	}
+
+	resolvePath := func(name string) (*Module, error) {
+		return resolveFunc(name, m)
+	}
+
+	if m.Import != nil && resolvePath != nil {
+		if m.Code == nil {
+			m.Code = &SectionCode{}
+		}
+
+		err := m.resolveImports(resolvePath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for _, fn := range []func() error{
+		m.populateGlobals,
+		m.populateFunctions,
+		m.populateTables,
+		// m.populateLinearMemory,
 	} {
 		if err := fn(); err != nil {
 			return nil, err

@@ -144,6 +144,22 @@ func (m *Module) ExecInitExpr(expr []byte) (interface{}, error) {
 			if globalVar == nil {
 				return nil, InvalidGlobalIndexError(index)
 			}
+			v, err := m.ExecInitExpr(globalVar.Init)
+			if err != nil {
+				return nil, err
+			}
+			var vv uint64
+			switch x := v.(type) {
+			case int32:
+				vv = uint64(x)
+			case int64:
+				vv = uint64(x)
+			case float32:
+				vv = uint64(math.Float32bits(x))
+			case float64:
+				vv = math.Float64bits(x)
+			}
+			stack = append(stack, vv)
 			lastVal = globalVar.Type.Type
 		case end:
 			break

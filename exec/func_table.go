@@ -183,4 +183,6 @@ func (vm *VM) newFuncTable() {
 
 	vm.funcTable[ops.Call] = vm.call
 	vm.funcTable[ops.CallIndirect] = vm.callIndirect
+
+	vm.funcTable[ops.CheckGas] = vm.checkGas
 }

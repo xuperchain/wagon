@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"reflect"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/xuperchain/wagon/disasm"
 	"github.com/xuperchain/wagon/exec/internal/compile"
 	"github.com/xuperchain/wagon/wasm"
@@ -55,6 +58,7 @@ type context struct {
 // VM is the execution context for executing WebAssembly bytecode.
 type VM struct {
 	ctx context
+	cfg config
 
 	module  *wasm.Module
 	globals []uint64
@@ -73,6 +77,12 @@ type VM struct {
 	abort bool // Flag for host functions to terminate execution
 
 	nativeBackend *nativeCompiler
+
+	gasMapper disasm.GasMapper
+	gasLimit  int64
+	UserData  interface{}
+	GasUsed   int64
+	StaticTop int64
 }
 
 // As per the WebAssembly spec: https://github.com/WebAssembly/design/blob/27ac254c854994103c24834a994be16f74f54186/Semantics.md#linear-memory
@@ -81,7 +91,11 @@ const wasmPageSize = 65536 // (64 KB)
 var endianess = binary.LittleEndian
 
 type config struct {
-	EnableAOT bool
+	EnableAOT   bool
+	GasMapper   disasm.GasMapper
+	GasLimit    int64
+	LazyCompile bool
+	CacheStore  FuncCacheStore
 }
 
 // VMOption describes a customization that can be applied to the VM.
@@ -96,6 +110,35 @@ func EnableAOT(v bool) VMOption {
 	}
 }
 
+// WithGasMapper add gas mapper to vm which enable gas statistics
+func WithGasMapper(gasMapper disasm.GasMapper) VMOption {
+	return func(c *config) {
+		c.GasMapper = gasMapper
+	}
+}
+
+// WithGasLimit add gas limit to vm
+func WithGasLimit(limit int64) VMOption {
+	return func(c *config) {
+		c.GasLimit = limit
+	}
+}
+
+// WithLazyCompile compile function when needed and cached result.
+// if no cached store is specified, DefaultCacheStore is used.
+func WithLazyCompile(v bool) VMOption {
+	return func(c *config) {
+		c.LazyCompile = v
+	}
+}
+
+// WithCacheStore set the store to cache compiled function if WithLazyCompile is enabled.
+func WithCacheStore(s FuncCacheStore) VMOption {
+	return func(c *config) {
+		c.CacheStore = s
+	}
+}
+
 // NewVM creates a new VM from a given module and options. If the module defines
 // a start function, it will be executed.
 func NewVM(module *wasm.Module, opts ...VMOption) (*VM, error) {
@@ -104,13 +147,37 @@ func NewVM(module *wasm.Module, opts ...VMOption) (*VM, error) {
 	for _, opt := range opts {
 		opt(&options)
 	}
+	// for test purpose
+	if !options.EnableAOT && os.Getenv("WAGON_LAZY_COMPILE") == "on" {
+		options.LazyCompile = true
+	}
+	if options.LazyCompile && options.EnableAOT {
+		return nil, errors.New("LazyCompile and EnableAOT can't be true at the same time")
+	}
+	if options.LazyCompile && options.CacheStore == nil {
+		options.CacheStore = DefaultCacheStore
+	}
+	vm.cfg = options
+	vm.gasMapper = options.GasMapper
+	vm.gasLimit = options.GasLimit
 
+	var err error
 	if module.Memory != nil && len(module.Memory.Entries) != 0 {
 		if len(module.Memory.Entries) > 1 {
 			return nil, ErrMultipleLinearMemories
 		}
-		vm.memory = make([]byte, uint(module.Memory.Entries[0].Limits.Initial)*wasmPageSize)
-		copy(vm.memory, module.LinearMemoryIndexSpace[0])
+		size := uint(module.Memory.Entries[0].Limits.Initial) * wasmPageSize
+		if size != 0 {
+			vm.memory, err = mmap.MapRegion(nil, int(size), mmap.RDWR, mmap.ANON, 0)
+			if err != nil {
+				return nil, err
+			}
+		}
+		// vm.memory = make([]byte, uint(module.Memory.Entries[0].Limits.Initial)*wasmPageSize)
+		err = vm.initMemory(module)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	vm.funcs = make([]function, len(module.FunctionIndexSpace))
@@ -134,26 +201,12 @@ func NewVM(module *wasm.Module, opts ...VMOption) (*VM, error) {
 			nNatives++
 			continue
 		}
-
-		disassembly, err := disasm.NewDisassembly(fn, module)
-		if err != nil {
-			return nil, err
-		}
-
-		totalLocalVars := 0
-		totalLocalVars += len(fn.Sig.ParamTypes)
-		for _, entry := range fn.Body.Locals {
-			totalLocalVars += int(entry.Count)
-		}
-		code, meta := compile.Compile(disassembly.Code)
-		vm.funcs[i] = compiledFunction{
-			codeMeta:       meta,
-			code:           code,
-			branchTables:   meta.BranchTables,
-			maxDepth:       disassembly.MaxDepth,
-			totalLocalVars: totalLocalVars,
-			args:           len(fn.Sig.ParamTypes),
-			returns:        len(fn.Sig.ReturnTypes) != 0,
+		if !options.LazyCompile {
+			ifn, err := vm.compileFunction(fn)
+			if err != nil {
+				return nil, err
+			}
+			vm.funcs[i] = ifn
 		}
 	}
 
@@ -179,6 +232,98 @@ func NewVM(module *wasm.Module, opts ...VMOption) (*VM, error) {
 	}
 
 	return &vm, nil
+}
+
+func (vm *VM) initMemory(m *wasm.Module) error {
+	if m.Data == nil || len(m.Data.Entries) == 0 {
+		return nil
+	}
+	// each module can only have a single linear memory in the MVP
+
+	maxoff := uint64(0)
+	for _, entry := range m.Data.Entries {
+		if entry.Index != 0 {
+			return wasm.InvalidLinearMemoryIndexError(entry.Index)
+		}
+		val, err := m.ExecInitExpr(entry.Offset)
+		if err != nil {
+			return err
+		}
+		off, ok := val.(int32)
+		if !ok {
+			return wasm.InvalidValueTypeInitExprError{
+				Wanted: reflect.Int32,
+				Got:    reflect.TypeOf(val).Kind(),
+			}
+		}
+		offset := uint32(off)
+
+		memory := vm.memory
+		dataEnd := uint64(offset) + uint64(len(entry.Data))
+		if dataEnd > uint64(len(memory)) {
+			return fmt.Errorf("data entry out of memory, offset:%d", dataEnd)
+		} else {
+			if maxoff < dataEnd {
+				maxoff = dataEnd
+			}
+			copy(memory[offset:], entry.Data)
+		}
+	}
+	vm.StaticTop = int64(maxoff)
+	return nil
+}
+
+func (vm *VM) getFunc(idx int) (function, error) {
+	ifn := vm.funcs[idx]
+	if ifn != nil {
+		return ifn, nil
+	}
+
+	fn := vm.module.FunctionIndexSpace[idx]
+	// native function does not need compile
+	if fn.IsHost() {
+		return vm.funcs[idx], nil
+	}
+
+	// found from cache
+	v, ok := vm.cfg.CacheStore.Get(fn.Body.Hash)
+	if ok {
+		ifn = v.(function)
+		vm.funcs[idx] = ifn
+		return ifn, nil
+	}
+
+	ifn, err := vm.compileFunction(fn)
+	if err != nil {
+		return nil, err
+	}
+	vm.cfg.CacheStore.Put(fn.Body.Hash, ifn)
+	vm.funcs[idx] = ifn
+	return ifn, nil
+}
+
+func (vm *VM) compileFunction(fn wasm.Function) (function, error) {
+	disassembly, err := disasm.NewDisassemblyWithGas(fn, vm.module, vm.gasMapper)
+	if err != nil {
+		return nil, err
+	}
+
+	totalLocalVars := 0
+	totalLocalVars += len(fn.Sig.ParamTypes)
+	for _, entry := range fn.Body.Locals {
+		totalLocalVars += int(entry.Count)
+	}
+	code, meta := compile.Compile(disassembly.Code)
+	compiled := compiledFunction{
+		codeMeta:       meta,
+		code:           code,
+		branchTables:   meta.BranchTables,
+		maxDepth:       disassembly.MaxDepth,
+		totalLocalVars: totalLocalVars,
+		args:           len(fn.Sig.ParamTypes),
+		returns:        len(fn.Sig.ReturnTypes) != 0,
+	}
+	return compiled, nil
 }
 
 func (vm *VM) resetGlobals() error {
@@ -332,7 +477,11 @@ func (vm *VM) ExecCode(fnIndex int64, args ...uint64) (rtrn interface{}, err err
 	if len(vm.module.GetFunction(int(fnIndex)).Sig.ParamTypes) != len(args) {
 		return nil, ErrInvalidArgumentCount
 	}
-	compiled, ok := vm.funcs[fnIndex].(compiledFunction)
+	fn, err := vm.getFunc(int(fnIndex))
+	if err != nil {
+		return nil, err
+	}
+	compiled, ok := fn.(compiledFunction)
 	if !ok {
 		panic(fmt.Sprintf("exec: function at index %d is not a compiled function", fnIndex))
 	}
@@ -370,8 +519,16 @@ func (vm *VM) ExecCode(fnIndex int64, args ...uint64) (rtrn interface{}, err err
 			return nil, InvalidReturnTypeError(rtrnType)
 		}
 	}
-
 	return rtrn, nil
+}
+
+func (vm *VM) checkGas() {
+	used := vm.fetchInt64()
+	if vm.GasUsed+used > vm.gasLimit {
+		// FIXME
+		panic("out of gas")
+	}
+	vm.GasUsed += used
 }
 
 func (vm *VM) execCode(compiled compiledFunction) uint64 {
@@ -410,7 +567,11 @@ outer:
 		case ops.BrTable:
 			index := vm.fetchInt64()
 			label := vm.popInt32()
-			cf, ok := vm.funcs[vm.ctx.curFunc].(compiledFunction)
+			fn, err := vm.getFunc(int(vm.ctx.curFunc))
+			if err != nil {
+				panic(err)
+			}
+			cf, ok := fn.(compiledFunction)
 			if !ok {
 				panic(fmt.Sprintf("exec: function at index %d is not a compiled function", vm.ctx.curFunc))
 			}
@@ -465,8 +626,16 @@ func (vm *VM) Restart() {
 	vm.abort = false
 }
 
+func (vm *VM) releaseMemory() {
+	if vm.memory != nil {
+		mem := mmap.MMap(vm.memory)
+		mem.Unmap()
+	}
+}
+
 // Close frees any resources managed by the VM.
 func (vm *VM) Close() error {
+	vm.releaseMemory()
 	vm.abort = true // prevents further use.
 	if vm.nativeBackend != nil {
 		if err := vm.nativeBackend.Close(); err != nil {
@@ -539,4 +708,8 @@ func (proc *Process) MemSize() int {
 // Terminate stops the execution of the current module.
 func (proc *Process) Terminate() {
 	proc.vm.abort = true
+}
+
+func (proc *Process) VM() *VM {
+	return proc.vm
 }

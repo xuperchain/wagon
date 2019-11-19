@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/ioutil"
 	"sort"
@@ -870,6 +871,7 @@ type FunctionBody struct {
 	Module *Module // The parent module containing this function body, for execution purposes
 	Locals []LocalEntry
 	Code   []byte
+	Hash   uint64
 }
 
 func (f *FunctionBody) UnmarshalWASM(r io.Reader) error {
@@ -910,7 +912,9 @@ func (f *FunctionBody) UnmarshalWASM(r io.Reader) error {
 	}
 
 	f.Code = code[:len(code)-1]
-
+	h := fnv.New64a()
+	h.Write(body)
+	f.Hash = h.Sum64()
 	return nil
 }
 

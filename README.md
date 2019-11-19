@@ -22,6 +22,12 @@ these files should be produced with another tool (such as [wabt](https://github.
 
 The primary goal of `wagon` is to provide the building blocks to be able to build an interpreter for Go code, that could be embedded in Jupyter or any Go program.
 
+## Additional features
+
+Based on the original go-interpreter version, the following features have been added.
+
+- Add instruction gas support, it is still a basic version can barely run.
+- Add lazy compiling and cache of compiled code which speed up big wasm code like go.
 
 ## Contributing
 

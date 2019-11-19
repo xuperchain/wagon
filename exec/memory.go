@@ -7,6 +7,8 @@ package exec
 import (
 	"errors"
 	"math"
+
+	"github.com/edsrzf/mmap-go"
 )
 
 // ErrOutOfBoundsMemoryAccess is the error value used while trapping the VM
@@ -209,6 +211,14 @@ func (vm *VM) growMemory() {
 	_ = vm.fetchInt8() // reserved (https://github.com/WebAssembly/design/blob/27ac254c854994103c24834a994be16f74f54186/BinaryEncoding.md#memory-related-operators-described-here)
 	curLen := len(vm.memory) / wasmPageSize
 	n := vm.popInt32()
-	vm.memory = append(vm.memory, make([]byte, n*wasmPageSize)...)
+	newSize := (curLen + int(n)) * wasmPageSize
+	newmem, err := mmap.MapRegion(nil, newSize, mmap.RDWR, mmap.ANON, 0)
+	if err != nil {
+		panic(err)
+	}
+	copy(newmem, vm.memory)
+	vm.releaseMemory()
+	vm.memory = newmem
+	// vm.memory = append(vm.memory, make([]byte, n*wasmPageSize)...)
 	vm.pushInt32(int32(curLen))
 }
