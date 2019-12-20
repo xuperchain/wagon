@@ -1,5 +1,5 @@
 name: Go
-on: [push]
+on: [pull_request, push]
 jobs:
 
   build:
@@ -17,4 +17,8 @@ jobs:
       uses: actions/checkout@v1
 
     - name: Build
-      run: go run ./ci/run-tests.go -cover -race
+      run: |
+        GOARCH=386   go install ./...
+        GOARCH=amd64 go install ./...
+        GOARCH=arm go install ./...
+        go run ./ci/run-tests.go -cover -race
